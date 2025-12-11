@@ -1,9 +1,8 @@
-import os
 from pathlib import Path
 from pypdf import PdfReader
 
 
-def stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize, remove_stopwords, lemmatize):
+def stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize):
     step_size = chunk_size - overlap_size
 
     if step_size <= 0:
@@ -16,8 +15,6 @@ def stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize, remove_stopw
         text = page.extract_text() or ""
 
         page_tokens = tokenize(text)
-        page_tokens = remove_stopwords(page_tokens)
-        page_tokens = lemmatize(page_tokens)
 
         token_buffer.extend(page_tokens)
 
@@ -29,7 +26,7 @@ def stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize, remove_stopw
         yield token_buffer
 
 
-def get_chunks(dir_path, chunk_size, overlap_size, tokenize, remove_stopwords, lemmatize):
+def get_chunks(dir_path, chunk_size, overlap_size, tokenize):
     pdf_files = list(Path(dir_path).glob("*.pdf"))
 
     if not pdf_files:
@@ -44,8 +41,6 @@ def get_chunks(dir_path, chunk_size, overlap_size, tokenize, remove_stopwords, l
                 chunk_size,
                 overlap_size,
                 tokenize,
-                remove_stopwords,
-                lemmatize
             )
         except Exception as e:
             print(f"Failed to read {pdf_file.name}: {e}")

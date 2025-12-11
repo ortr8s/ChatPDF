@@ -1,8 +1,8 @@
 from typing import Iterable, List, Union
-
-import torch
 from sentence_transformers import SentenceTransformer
 from torch import Tensor
+
+import torch
 
 
 class SemanticRetriever:
@@ -12,13 +12,13 @@ class SemanticRetriever:
 
     def update_corpus_embeddings(
         self,
-        chunks_generator: Iterable[Union[str, List[str]]],
+        chunks_generator: Iterable[str],
         batch_size: int = 32
     ) -> None:
         batch_buffer: List[str] = []
 
         for chunk in chunks_generator:
-            if isinstance(chunk, str):
+            if isinstance(chunk, str): # skip control tokens
                 continue
 
             text = "".join(chunk).replace("\n", " ")
