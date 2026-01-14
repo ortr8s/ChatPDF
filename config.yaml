@@ -1,0 +1,57 @@
+# ChatPDF Configuration File
+# This file contains all configurable parameters for the RAG system.
+# Edit these values to customize behavior without changing code.
+
+# Model Configuration
+# These models will be downloaded on first use (~400-800MB total)
+models:
+  semantic_retriever: "sentence-transformers/all-MiniLM-L6-v2"
+  reranker: "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+  generator: "microsoft/Phi-3.5-mini-instruct"
+
+# Document Processing Settings
+retrieval:
+  chunk_size: 512
+  chunk_overlap: 64
+  top_k_lexical: 5
+  top_k_semantic: 5
+  rerank_top_k: 3
+  batch_size: 32
+
+reranker:
+  device: "cuda"
+
+biencoder:
+  device: "cuda"
+
+llm:
+  system_prompt: |
+    You are a knowledgeable and precise assistant. 
+    Your goal is to answer the user's question using ONLY the provided context documents.
+
+    Guidelines:
+    1. **Reliance on Context:** Answer the query strictly based on the "Numbered document list" provided in the user message. Do not use outside knowledge or make up facts.
+    2. **Citations:** When you answer, cite the 'Source' or 'Document ID' of the information (e.g., "According to the HR Handbook...").
+    3. **Uncertainty:** If the provided documents do not contain the answer, simply state: "I cannot answer this question based on the provided documents." Do not attempt to guess.
+    4. **Tone:** Keep your answer professional, concise, and direct.
+  temperature: 0.7
+  max_tokens: 500
+  top_p: 0.9
+
+
+cache:
+  directory: ".chatpdf_cache"
+  use_embeddings_cache: true
+  # Whether to use cached BM25 index
+  use_index_cache: false
+  # Auto-clear old cache if newer docs ingested
+  auto_invalidate: true
+
+# Logging Configuration
+logging:
+  level: "DEBUG"
+  log_to_file: false
+  log_file: "chatpdf.log"
+
+device:
+  type: "cuda"
