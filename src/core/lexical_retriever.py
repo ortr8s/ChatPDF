@@ -16,13 +16,11 @@ class LexicalRetriever:
     def build(self, corpus: List[str]) -> None:
         if not corpus:
             raise ValueError("Corpus cannot be empty")
-
         try:
             logger.log(
                 f"Building BM25 index for {len(corpus)} documents",
                 "DEBUG"
                 )
-
             tokenized_corpus = self.lemmatizer.lemmatize(corpus)
             self.model = BM25Okapi(tokenized_corpus)
             logger.log("BM25 index built successfully", "DEBUG")
@@ -34,7 +32,6 @@ class LexicalRetriever:
         if self.model is None:
             msg = "BM25 model not built. Call build() first."
             raise ValueError(msg)
-
         try:
             query_tokens = self.lemmatizer.tokenize_query(query)
             scores = self.model.get_scores(query_tokens)
@@ -44,7 +41,6 @@ class LexicalRetriever:
                 key=lambda i: scores[i],
                 reverse=True
             )[:n]
-
             return top_n_indices
         except Exception as e:
             logger.log(f"Error searching BM25 index: {e}", "ERROR")

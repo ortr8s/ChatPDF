@@ -1,15 +1,16 @@
-# ChatPDF Configuration File
+# ChatPDF CONFIGURATION FILE
 # This file contains all configurable parameters for the RAG system.
 # Edit these values to customize behavior without changing code.
 
-# Model Configuration
-# These models will be downloaded on first use (~400-800MB total)
+# MODEL CONFIGURATION
+# These models will be downloaded on first use
+# Expect diffrent drive space usage depending how "heave" models set actually are
 models:
   semantic_retriever: "sentence-transformers/all-MiniLM-L6-v2"
   reranker: "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
   generator: "microsoft/Phi-3.5-mini-instruct"
 
-# Document Processing Settings
+# DOCUMENT PROCESSING SETTINGS
 retrieval:
   chunk_size: 512
   chunk_overlap: 64
@@ -18,12 +19,15 @@ retrieval:
   rerank_top_k: 3
   batch_size: 32
 
+# RERANKER SETTINGS
 reranker:
   device: "cuda"
 
+# SEMANTIC RETRIEVER SETTINGS
 biencoder:
   device: "cuda"
 
+# LLM USED FOR GENERATION SETTINGS
 llm:
   system_prompt: |
     You are a knowledgeable and precise assistant. 
@@ -37,8 +41,15 @@ llm:
   temperature: 0.7
   max_tokens: 500
   top_p: 0.9
+  attn_implementation: eager
+  device: cuda
+  quantize: 
+    enable: true
+    # choose from 4 or 8
+    how_many_bits: 4
 
 
+# CACHE SETTINGS
 cache:
   directory: ".chatpdf_cache"
   use_embeddings_cache: true
@@ -47,11 +58,8 @@ cache:
   # Auto-clear old cache if newer docs ingested
   auto_invalidate: true
 
-# Logging Configuration
+# LOGGING SETTINGS
 logging:
-  level: "DEBUG"
+  level: "ERROR"
   log_to_file: false
   log_file: "chatpdf.log"
-
-device:
-  type: "cuda"

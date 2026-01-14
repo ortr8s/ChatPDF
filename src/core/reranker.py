@@ -21,29 +21,27 @@ class ReRanker:
         self,
         query: str,
         documents: List[Tuple[int, str]],
-        n_ans: int
+        n_ans: int,
+        batch_size: int = 32
     ) -> List[int]:
-        if n_ans > len(documents):
-            msg = "n_ans cannot be larger than number of documents"
-            raise ValueError(msg)
-
+        if not documents:
+            return []
+        k = min(n_ans, len(documents))
         try:
             logger.log(
-                f"Reranking {len(documents)} docs for query: {query[:50]}",
+                f"Reranking {len(documents)} docs for query: {query[:50]}...",
                 "DEBUG"
             )
             pairs = [[query, doc[1]] for doc in documents]
-            scores = self.model.predict(pairs)
-
-            scores_tensor = torch.tensor(scores)
-            # topk returns (values, indices)
-            _, top_indices = torch.topk(
-                scores_tensor, k=min(n_ans, len(documents))
+            scores = self.model.predict(
+                pairs, 
+                batch_size=batch_size,
+                show_progress_bar=False
             )
-
-            # top_indices are indices into the scores/documents array
+            scores_tensor = torch.tensor(scores)
+            _, top_indices = torch.topk(scores_tensor, k=k)
             result = [documents[i.item()][0] for i in top_indices]
-            logger.log(f"Reranking complete, selected top {n_ans}", "DEBUG")
+            logger.log(f"Reranking complete, selected top {k}", "DEBUG")
             return result
         except Exception as e:
             logger.log(f"Error during reranking: {e}", "ERROR")

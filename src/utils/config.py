@@ -10,27 +10,21 @@ logger = logging.getLogger(__name__)
 
 
 class Config:
-    """Load and manage application configuration."""
-
     _instance = None
     _config: Dict[str, Any] = {}
 
     def __new__(cls):
-        """Singleton pattern to ensure single config instance."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self):
-        """Initialize configuration if not already loaded."""
         if not self._config:
             self._load_config()
 
     @classmethod
     def _load_config(cls) -> None:
-        """Load configuration from YAML file."""
         config_path = Path(__file__).parent.parent.parent / "config.yaml"
-
         if not config_path.exists():
             logger.warning(
                 f"Config file not found at {config_path}. "
@@ -38,7 +32,6 @@ class Config:
             )
             cls._config = cls._get_defaults()
             return
-
         try:
             with open(config_path, "r") as f:
                 cls._config = yaml.safe_load(f) or {}
@@ -49,7 +42,6 @@ class Config:
 
     @staticmethod
     def _get_defaults() -> Dict[str, Any]:
-        """Return default configuration."""
         return {
             "models": {
                 "semantic_retriever": "sentence-transformers/all-MiniLM-L6-v2",
@@ -88,7 +80,6 @@ class Config:
     def get(self, key: str, default: Any = None) -> Any:
         keys = key.split(".")
         value = self._config
-
         for k in keys:
             if isinstance(value, dict):
                 value = value.get(k)
@@ -96,18 +87,14 @@ class Config:
                     return default
             else:
                 return default
-
         return value if value is not None else default
 
     def get_section(self, section: str) -> Dict[str, Any]:
         return self._config.get(section, {})
 
     def __repr__(self) -> str:
-        """String representation of config."""
         return f"Config({self._config})"
 
 
-# Convenience function for accessing config
 def get_config() -> Config:
-    """Get global config instance."""
     return Config()
