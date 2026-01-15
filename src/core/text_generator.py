@@ -1,7 +1,4 @@
-import torch
-from transformers import logging as transformers_logging
-from transformers import pipeline, TextIteratorStreamer, AutoTokenizer
-from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import TextIteratorStreamer
 from threading import Thread
 from src.utils.logger import Logger
 from src.utils.config import get_config
@@ -21,7 +18,10 @@ class Generator:
         self.temperature = temperature
         self.top_p = top_p
         self.config = get_config()
-        self.tokenizer, self.pipeline = init_pipeline(self.model_name, get_config())
+        self.tokenizer, self.pipeline = init_pipeline(
+            self.model_name,
+            get_config()
+        )
 
     def stream_answer(
         self,

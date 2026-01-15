@@ -28,7 +28,7 @@ def get_chunks(
         return
     logger.log(f"Found {len(pdf_files)} PDF files in {dir_path}", "info")
     for pdf_file in pdf_files:
-        yield f"<s>{pdf_file}</s>"
+        yield f"<s>{pdf_file.name}</s>"
         try:
             yield from _stream_pdf_chunks(
                 str(pdf_file),
@@ -38,9 +38,9 @@ def get_chunks(
             )
         except Exception as e:
             logger.log(f"Failed to read {pdf_file.name}: {e}", "error")
-            yield f"<e>{pdf_file}</e>"
+            yield f"<e>{pdf_file.name}</e>"
             continue
-        yield f"<e>{pdf_file}</e>"
+        yield f"<e>{pdf_file.name}</e>"
 
 
 def _stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize):

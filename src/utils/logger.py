@@ -3,9 +3,9 @@ from src.utils.config import Config
 
 
 class Logger():
-    def __init__(self, facility, level_to_show: str = None):
+    def __init__(self, facility, level_to_show: str = ''):
         self.logger = logging.getLogger(facility)
-        if level_to_show is None:
+        if level_to_show == '':
             self._get_config()
         else:
             self.level_to_show = level_to_show

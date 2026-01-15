@@ -40,7 +40,7 @@ def get_rag_instance() -> RAG:
             cache_dir=config.get("cache.directory", ".chatpdf_cache")
         )
         if config.get("cache.use_embeddings_cache", True):
-            if rag_instance.load_from_cache():
+            if rag_instance.kb.load():
                 return rag_instance
     return rag_instance
 
@@ -71,12 +71,8 @@ def ingest(
             f"[bold green]Processing documents in [/bold green][bold purple]{path}[bold purple]",
             spinner="dots"
         ):
-            chunk_count = rag.ingest_documents(
-                path,
-                chunk_size=512,
-                chunk_overlap=64
-            )
-        ingested_file_num = len(rag_instance.ingested_file_names)
+            chunk_count = rag.ingest_documents(path)
+        ingested_file_num = len(rag_instance.kb.ingested_file_names)
         console.print(
             Panel(
                 f"[bold green]Success![/bold green] "
@@ -105,7 +101,7 @@ def chat():
             spinner="dots"
         ):
             rag = get_rag_instance()
-        if not rag.is_indexed:
+        if not rag.kb.is_indexed:
             msg = ("[bold red]No documents indexed.[/bold red]\n"
                    "Run ingest command with /path/to/pdfs first.")
             rprint(msg)
@@ -168,7 +164,7 @@ def clear_cache():
             spinner="dots"
         ):
             rag = get_rag_instance()
-        is_cleared = rag.serializer.clear_cache()
+        is_cleared = rag.kb.serializer.clear_cache()
         if is_cleared:
             rprint("[bold green]✓ Cache cleared successfully[/bold green]")
         else:
@@ -192,10 +188,10 @@ def cache_info():
             spinner="dots"
         ):
             rag = get_rag_instance()
-        info = rag.serializer.get_cache_info()
+        info = rag.kb.serializer.get_cache_info()
 
         if not info.get("cached"):
-            rprint("[yellow]No cache found[/yellow]")
+            rprint("[bold yellow]WARNING: No cache found[/bold yellow]")
             return
         table = Table(show_header=True, header_style="bold cyan")
         table.add_column("Property")
