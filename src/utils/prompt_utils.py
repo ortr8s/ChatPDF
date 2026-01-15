@@ -15,7 +15,7 @@ def prepare_prompt(documents: List[Tuple[int, str, str]], query: str) -> str:
 
 def format_document(doc_id: int, content: str, filename: str) -> str:
     return (
-        f"Document ID: {doc_id}\n"
+        f"ChunkID: {doc_id}\n"
         f"Source: {filename}\n"
         f"Content: {content}\n"
     )

@@ -5,7 +5,45 @@ from src.utils.logger import Logger
 logger = Logger(__name__)
 
 
-def stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize):
+def get_chunks(
+        dir_path,
+        chunk_size,
+        overlap_size,
+        tokenize,
+        specific_files=None
+        ):
+    dir_p = Path(dir_path)
+    if specific_files:
+        pdf_files = []
+        for f_name in specific_files:
+            f_path = dir_p / Path(f_name).name
+            if f_path.exists():
+                pdf_files.append(f_path)
+            else:
+                logger.log(f"File requested but not found: {f_path}", "warning")
+    else:
+        pdf_files = list(dir_p.glob("*.pdf"))
+    if not pdf_files:
+        logger.log(f"No PDFs found in {dir_path}", "warning")
+        return
+    logger.log(f"Found {len(pdf_files)} PDF files in {dir_path}", "info")
+    for pdf_file in pdf_files:
+        yield f"<s>{pdf_file}</s>"
+        try:
+            yield from _stream_pdf_chunks(
+                str(pdf_file),
+                chunk_size,
+                overlap_size,
+                tokenize,
+            )
+        except Exception as e:
+            logger.log(f"Failed to read {pdf_file.name}: {e}", "error")
+            yield f"<e>{pdf_file}</e>"
+            continue
+        yield f"<e>{pdf_file}</e>"
+
+
+def _stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize):
     step_size = chunk_size - overlap_size
     if step_size <= 0:
         msg = "Overlap size must be smaller than chunk size."
@@ -41,25 +79,3 @@ def stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize):
     except Exception as e:
         logger.log(f"Error processing PDF {pdf_path}: {e}", "error")
         raise
-
-
-def get_chunks(dir_path, chunk_size, overlap_size, tokenize):
-    pdf_files = list(Path(dir_path).glob("*.pdf"))
-    if not pdf_files:
-        logger.log(f"No PDFs found in {dir_path}", "warning")
-        return
-    logger.log(f"Found {len(pdf_files)} PDF files in {dir_path}", "info")
-    for pdf_file in pdf_files:
-        yield f"<s>{pdf_file}</s>"
-        try:
-            yield from stream_pdf_chunks(
-                str(pdf_file),
-                chunk_size,
-                overlap_size,
-                tokenize,
-            )
-        except Exception as e:
-            logger.log(f"Failed to read {pdf_file.name}: {e}", "error")
-            yield f"<e>{pdf_file}</e>"
-            continue
-        yield f"<e>{pdf_file}</e>"

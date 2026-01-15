@@ -1,25 +1,26 @@
 from typing import List
-import logging
 import spacy
 
-logger = logging.getLogger(__name__)
+from src.utils.logger import Logger
+
+logger = Logger(__name__)
 
 
 class Lemmatizer:
     def __init__(self):
         try:
-            logger.debug("Loading spaCy English model")
+            logger.log("Loading spaCy English model", "DEBUG")
             self.nlp = spacy.load("en_core_web_sm")
-            logger.info("spaCy model loaded: en_core_web_sm")
+            logger.log("spaCy model loaded: en_core_web_sm", "INFO")
         except OSError:
-            logger.error(
+            logger.log(
                 "spaCy model not found. Run: "
-                "python -m spacy download en_core_web_sm"
+                "python -m spacy download en_core_web_sm", "ERROR"
             )
             raise
 
     def lemmatize(self, corpus: List[str]) -> List[List[str]]:
-        logger.debug(f"Lemmatizing {len(corpus)} documents")
+        logger.log(f"Lemmatizing {len(corpus)} documents", "DEBUG")
         tokenized_corpus = []
         # disable=['ner', 'parser'] speeds up lemmatization
         try:
@@ -39,10 +40,12 @@ class Lemmatizer:
                 ]
                 tokenized_corpus.append(tokens)
 
-            logger.debug(f"Lemmatized {len(tokenized_corpus)} documents")
+            logger.log(
+                f"Lemmatized {len(tokenized_corpus)} documents", "DEBUG"
+            )
             return tokenized_corpus
         except Exception as e:
-            logger.error(f"Error during lemmatization: {e}")
+            logger.log(f"Error during lemmatization: {e}", "ERROR")
             raise
 
     def tokenize_query(self, text: str) -> List[str]:
@@ -59,5 +62,5 @@ class Lemmatizer:
             ]
             return tokens
         except Exception as e:
-            logger.error(f"Error tokenizing query: {e}")
+            logger.log(f"Error tokenizing query: {e}", "ERROR")
             raise

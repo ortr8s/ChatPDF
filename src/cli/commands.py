@@ -26,7 +26,6 @@ def get_rag_instance() -> RAG:
     global rag_instance
     if rag_instance is None:
         config = get_config()
-        # Initialize with configured models
         tokenizer = tiktoken.get_encoding("cl100k_base")
         rag_instance = RAG(
             reranker_model=config.get("models.reranker"),
@@ -40,7 +39,6 @@ def get_rag_instance() -> RAG:
             lemmatizer=Lemmatizer(),
             cache_dir=config.get("cache.directory", ".chatpdf_cache")
         )
-        # Try loading from cache
         if config.get("cache.use_embeddings_cache", True):
             if rag_instance.load_from_cache():
                 return rag_instance
@@ -58,16 +56,19 @@ def ingest(
 ):
     """Ingest PDF documents and build search indexes."""
     console.rule("[bold blue]Document Ingestion Pipeline")
-    rprint(f"[italic]Scanning directory:[/italic] {path}")
     if not os.path.isdir(path):
         console.print(
             f"[bold red]Error:[/bold red] Directory '{path}' not found"
         )
         raise typer.Exit(code=1)
     try:
-        rag = get_rag_instance()
         with console.status(
-            "[bold green]Processing documents...[/bold green]",
+            f"[bold green][italic]Scanning directory:[/italic][bold green][bold purple] {path}[bold purple]",
+            spinner="dots"
+        ):
+            rag = get_rag_instance()
+        with console.status(
+            f"[bold green]Processing documents in [/bold green][bold purple]{path}[bold purple]",
             spinner="dots"
         ):
             chunk_count = rag.ingest_documents(
@@ -75,10 +76,11 @@ def ingest(
                 chunk_size=512,
                 chunk_overlap=64
             )
+        ingested_file_num = len(rag_instance.ingested_file_names)
         console.print(
             Panel(
                 f"[bold green]Success![/bold green] "
-                f"Indexed {chunk_count} chunks",
+                f"Indexed {chunk_count} chunks from {ingested_file_num} files",
                 title="Ingestion Status"
             )
         )
@@ -98,10 +100,14 @@ def chat():
     console.rule("[bold magenta]Interactive ChatPDF Terminal[/bold magenta]")
     rprint("[yellow]Type 'exit', 'quit', or Ctrl+C to stop.[/yellow]\n")
     try:
-        rag = get_rag_instance()
+        with console.status(
+            "[bold green]Loading: Wait for the [bold cyan]You:[/bold cyan] prompt to appear[/bold green]",
+            spinner="dots"
+        ):
+            rag = get_rag_instance()
         if not rag.is_indexed:
             msg = ("[bold red]No documents indexed.[/bold red]\n"
-                   "Run 'chatpdf ingest /path/to/pdfs' first.")
+                   "Run ingest command with /path/to/pdfs first.")
             rprint(msg)
             raise typer.Exit(code=1)
     except Exception as e:
@@ -120,7 +126,7 @@ def chat():
                 continue
             stream_generator = rag.stream_response(user_query)
             first_chunk = None
-            status_msg = "[bold green]Retrieving and thinking...[/bold green]"
+            status_msg = "[bold green]Thinking[/bold green]"
             with console.status(status_msg, spinner="dots"):
                 try:
                     first_chunk = next(stream_generator)
@@ -156,12 +162,17 @@ def chat():
 def clear_cache():
     """Clear cached embeddings and indexes."""
     console.rule("[bold yellow]Cache Management[/bold yellow]")
-    rprint("[yellow]Clearing ChatPDF cache...[/yellow]")
-
     try:
-        rag = get_rag_instance()
-        rag.serializer.clear_cache()
-        rprint("[bold green]✓ Cache cleared successfully[/bold green]")
+        with console.status(
+            "[bold yellow]Clearing cache, please wait[/bold yellow]",
+            spinner="dots"
+        ):
+            rag = get_rag_instance()
+        is_cleared = rag.serializer.clear_cache()
+        if is_cleared:
+            rprint("[bold green]✓ Cache cleared successfully[/bold green]")
+        else:
+            rprint("[bold yellow]WARNING: Cache does not exist, quitting now[/bold yellow]")
         logger.log("Cache cleared by user", "INFO")
     except Exception as e:
         console.print(
@@ -176,7 +187,11 @@ def cache_info():
     """Display information about cached data."""
     console.rule("[bold blue]Cache Information[/bold blue]")
     try:
-        rag = get_rag_instance()
+        with console.status(
+            "[bold green]Loading[/bold green]",
+            spinner="dots"
+        ):
+            rag = get_rag_instance()
         info = rag.serializer.get_cache_info()
 
         if not info.get("cached"):
@@ -192,6 +207,9 @@ def cache_info():
                 table.add_row("Cached Documents", str(value))
             elif key == "timestamp":
                 table.add_row("Created", str(value))
+            elif key == "file_names":
+                formatted_files = "\n".join(value)
+                table.add_row("Cached File Names", formatted_files)
             elif key != "cached":
                 table.add_row(key.capitalize(), str(value))
         console.print(table)

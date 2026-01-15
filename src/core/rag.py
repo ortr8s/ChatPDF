@@ -1,4 +1,6 @@
 from typing import List, Dict, Tuple, Optional
+from pathlib import Path
+import torch
 from src.utils.logger import Logger
 
 from src.core.lexical_retriever import LexicalRetriever
@@ -39,6 +41,7 @@ class RAG:
         self.serializer = Serializer(cache_dir)
         self.tokenize_func = tokenize_func
         self.file_map: Dict[int, str] = {}
+        self.ingested_file_names = []
         self.corpus: List[str] = []
         self.is_indexed = False
 
@@ -62,6 +65,7 @@ class RAG:
             self.semantic_retriever.corpus_embeddings = embeddings
             self.corpus = corpus
             self.file_map = file_map
+            self.ingested_file_names = metadata.get("file_names", [])
             logger.log(
                 "Rebuilding BM25 index from cached corpus",
                 "INFO"
@@ -84,62 +88,27 @@ class RAG:
     def ingest_documents(
         self,
         dir_path: str,
-        chunk_size: int = 512,
-        chunk_overlap: int = 64
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None
     ) -> int:
-        logger.log(
-            f"Starting document ingestion from {dir_path}",
-            "INFO")
-        chunk_count = 0
-        current_file = None
-        try:
-            chunks_gen = get_chunks(
-                dir_path, chunk_size, chunk_overlap, self.tokenize_func
-            )
-            for chunk in chunks_gen:
-                if isinstance(chunk, str):
-                    if chunk.startswith("<s>"):
-                        # Extract filename from <s>filename</s>
-                        current_file = chunk[3:-4]
-                        logger.log(f"Processing file: {current_file}", "DEBUG")
-                        continue
-                    elif chunk.startswith("<e>"):
-                        continue
-                    elif chunk.strip():
-                        self.corpus.append(chunk)
-                        self.file_map[chunk_count] = current_file or "unknown"
-                        chunk_count += 1
-            # Build lexical index
-            logger.log(f"Building BM25 index for {chunk_count} chunks", "INFO")
-            self.lexical_retriever.build(self.corpus)
-            # Build semantic embeddings
-            logger.log("Generating semantic embeddings", "INFO")
-            self.semantic_retriever.update_corpus_embeddings(
-                self.corpus,
-                batch_size=32
-            )
-            # Serialize embeddings for faster loading next time
-            if self.config.get("cache.use_embeddings_cache", True):
-                try:
-                    logger.log("Caching embeddings to disk", "INFO")
-                    self.serializer.save_embeddings(
-                        self.semantic_retriever.corpus_embeddings,
-                        self.corpus,
-                        self.semantic_model_name
-                    )
-                    self.serializer.save_corpus(self.corpus)
-                    self.serializer.save_file_map(self.file_map)
-                    logger.log("Caching complete", "INFO")
-                except Exception as e:
-                    logger.log(f"Could not cache embeddings: {e}", "WARNING")
-
-            self.is_indexed = True
-            logger.log(f"Successfully ingested {chunk_count} chunks", "INFO")
-            return chunk_count
-
-        except Exception as e:
-            logger.log(f"Error during document ingestion: {e}", "ERROR")
-            raise
+        logger.log(f"Starting ingestion for: {dir_path}", "INFO")
+        files_to_process = self._determine_processing_strategy(dir_path)
+        if files_to_process is not None and len(files_to_process) == 0:
+            logger.log("Index is up to date. No processing needed.", "INFO")
+            return len(self.corpus)
+        chunks_gen = get_chunks(
+            dir_path,
+            chunk_size or self.config.get("retrieval.chunk_size", 512),
+            chunk_overlap or self.config.get("retrieval.chunk_overlap", 64),
+            self.tokenize_func,
+            specific_files=files_to_process
+        )
+        new_text_chunks = self._consume_chunks(chunks_gen)
+        self._update_indices(new_text_chunks)
+        self._persist_to_cache()
+        self.is_indexed = True
+        logger.log(f"Ingestion complete. Total Corpus: {len(self.corpus)}", "INFO")
+        return len(self.corpus)
 
     def retrieve(
         self,
@@ -221,6 +190,7 @@ class RAG:
         except Exception as e:
             logger.log(f"Error during reranking: {e}", "ERROR")
             raise
+
     def stream_response(self, query: str, top_k_final: Optional[int] = None):
         logger.log(f"Processing chat query: {query}", "INFO")
         try:
@@ -267,3 +237,98 @@ class RAG:
             temperature=config.get("llm.temperature", 0.7),
             top_p=config.get("llm.top_p", 0.9),
         )
+
+    def _determine_processing_strategy(self, dir_path: str) -> Optional[List[str]]:
+        if not self.config.get("cache.auto_invalidate", True):
+            return None
+        cache_info = self.serializer.get_cache_info()
+        if not cache_info.get("cached"):
+            return None
+        try:
+            cached_filenames = {Path(f).name for f in cache_info.get("file_names", [])}
+            disk_files_map = {
+                p.name: str(p) for p in Path(dir_path).glob("*.pdf")
+            }
+            current_filenames = set(disk_files_map.keys())
+            new_files = list(current_filenames - cached_filenames)
+            if not new_files and len(disk_files_map) == len(cached_filenames):
+                logger.log("No new files found. Loading existing cache.", "INFO")
+                self.load_from_cache()
+                return []
+            if new_files and self.load_from_cache():
+                logger.log(f"Incremental Update: Found {len(new_files)} new files.", "INFO")
+                return new_files
+            logger.log("Cache invalid or load failed. Performing full ingestion.", "WARNING")
+            return None
+
+        except Exception as e:
+            logger.log(f"Error determining strategy: {e}. Defaulting to full ingest.", "ERROR")
+            return None
+
+    def _consume_chunks(self, chunks_generator) -> List[str]:
+        new_text_chunks = []
+        chunk_count = len(self.corpus)
+        current_file = None
+
+        for chunk in chunks_generator:
+            if isinstance(chunk, str):
+                if chunk.startswith("<s>"):
+                    current_file = chunk[3:-4]
+                    if current_file not in self.ingested_file_names:
+                        self.ingested_file_names.append(current_file)
+                    logger.log(f"Processing file: {current_file}", "DEBUG")
+                    continue
+                elif chunk.startswith("<e>"):
+                    continue
+                elif chunk.strip():
+                    self.corpus.append(chunk)
+                    self.file_map[chunk_count] = current_file or "unknown"
+                    chunk_count += 1
+                    new_text_chunks.append(chunk)
+        return new_text_chunks
+
+    def _update_indices(self, new_text_chunks: List[str]):
+        logger.log(f"Building BM25 index for {len(self.corpus)} chunks", "INFO")
+        self.lexical_retriever.build(self.corpus)
+        if not new_text_chunks:
+            logger.log("No new chunks to embed.", "DEBUG")
+            return
+
+        logger.log(f"Generating embeddings for {len(new_text_chunks)} new chunks", "INFO")
+        old_embeddings = self.semantic_retriever.corpus_embeddings
+        self.semantic_retriever.update_corpus_embeddings(
+            new_text_chunks,
+            self.config.get("retrieval.batch_size", 32)
+        )
+        new_embeddings = self.semantic_retriever.corpus_embeddings
+        if new_embeddings is None:
+            logger.log("New embeddings generation returned None.", "WARNING")
+            self.semantic_retriever.corpus_embeddings = old_embeddings
+            return
+        if old_embeddings is not None and len(old_embeddings) > 0:
+            if old_embeddings.device != new_embeddings.device:
+                old_embeddings = old_embeddings.to(new_embeddings.device)
+            self.semantic_retriever.corpus_embeddings = torch.cat(
+                [old_embeddings, new_embeddings], 
+                dim=0
+            )
+        else:
+            self.semantic_retriever.corpus_embeddings = new_embeddings
+
+    def _persist_to_cache(self):
+        if not self.config.get("cache.use_embeddings_cache", True):
+            return
+
+        try:
+            logger.log("Saving state to cache...", "INFO")
+            self.serializer.save_embeddings(
+                self.semantic_retriever.corpus_embeddings,
+                self.corpus,
+                self.semantic_model_name,
+                {"file_names": self.ingested_file_names}
+            )
+            self.serializer.save_corpus(self.corpus)
+            self.serializer.save_file_map(self.file_map)
+            logger.log("Cache save complete", "INFO")
+        except Exception as e:
+            logger.log(f"Failed to save cache: {e}", "WARNING")
