@@ -70,17 +70,16 @@ class RAG:
                 yield "No relevant documents found."
                 return
             sources = list(set([src for _, _, src in top_docs]))
-            
-            # Use few-shot prompting for consistent answer formatting
+
             messages = prepare_messages_with_few_shot(
                 system_prompt=self.config.get("llm.system_prompt"),
                 documents=top_docs,
                 query=query
             )
-            
+
             for token in self.generator.stream_answer(messages):
                 yield token
-            yield {"__sources__": sources} 
+            yield {"__sources__": sources}
         except Exception as e:
             logger.log(f"Error in chat pipeline: {e}", "ERROR")
             yield f"Error: {str(e)}"
