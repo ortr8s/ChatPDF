@@ -8,7 +8,7 @@ from src.core.text_generator import Generator
 from src.utils.lexical_utils import Lemmatizer
 from src.utils.logger import Logger
 from src.utils.config import get_config
-from src.utils.prompt_utils import prepare_prompt
+from src.utils.prompt_utils import prepare_prompt, prepare_messages_with_few_shot
 
 logger = Logger(__name__)
 
@@ -70,11 +70,14 @@ class RAG:
                 yield "No relevant documents found."
                 return
             sources = list(set([src for _, _, src in top_docs]))
-            user_prompt = prepare_prompt(top_docs, query)
-            messages = [
-                {"role": "system", "content": self.config.get("llm.system_prompt")},
-                {"role": "user", "content": user_prompt}
-            ]
+            
+            # Use few-shot prompting for consistent answer formatting
+            messages = prepare_messages_with_few_shot(
+                system_prompt=self.config.get("llm.system_prompt"),
+                documents=top_docs,
+                query=query
+            )
+            
             for token in self.generator.stream_answer(messages):
                 yield token
             yield {"__sources__": sources} 
