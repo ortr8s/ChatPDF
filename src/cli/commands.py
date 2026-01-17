@@ -1,124 +1,215 @@
 import typer
-import time
-import random
+import os
 from typing_extensions import Annotated
 from rich.console import Console
 from rich.panel import Panel
-from rich.markdown import Markdown
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich import print as rprint
+
+import tiktoken
+
+from ..core.rag import RAG
+from ..utils.lexical_utils import Lemmatizer
+from ..utils.config import get_config
+from ..utils.logger import Logger
+from ..utils.cli_utils import render_streaming_response
+
+logger = Logger(__name__)
 
 console = Console()
 app = typer.Typer(help="ChatPDF Command Line Interface")
 
+rag_instance = None
 
-class MockRAGBackend:
-    def ingest_documents(self, path: str):
-        """Simulates loading and indexing documents."""
-        files = [f"{path}/doc_{i}.txt" for i in range(1, 6)]
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True,
-        ) as progress:
-            task = progress.add_task(description="Processing documents...", total=len(files))
-            for file in files:
-                time.sleep(0.5) # Simulate processing time
-                progress.update(task, advance=1, description=f"Indexing {file}")
-        return len(files)
 
-    def stream_chat_response(self, query: str):
-        """Simulates streaming an LLM response chunk by chunk."""
-        dummy_response = (
-            f"Based on the context regarding '{query}', here is the answer. "
-            "RAG systems retrieve relevant documents before generating an answer. "
-            "This ensures the LLM is grounded in factual data rather than hallucinating. "
-            "Here is a bullet point list explaining why:\n"
-            "- Improved accuracy\n"
-            "- Source attribution\n"
-            "- Ability to update knowledge base easily."
+def get_rag_instance() -> RAG:
+    global rag_instance
+    if rag_instance is None:
+        config = get_config()
+        tokenizer = tiktoken.get_encoding("cl100k_base")
+        rag_instance = RAG(
+            reranker_model=config.get("models.reranker"),
+            semantic_retriever_model=config.get(
+                "models.semantic_retriever"
+            ),
+            generator_model=config.get(
+                "models.generator"
+            ),
+            tokenize_func=lambda x: tokenizer.encode(x),
+            lemmatizer=Lemmatizer(),
+            cache_dir=config.get("cache.directory", ".chatpdf_cache")
         )
-        chunks = dummy_response.split(" ")
-        for chunk in chunks:
-            time.sleep(random.uniform(0.05, 0.2))  # Simulate token generation delay
-            yield chunk + " "
-
-    def get_sources(self, query: str):
-        """Simulates retrieving the source documents used for the answer."""
-        return [
-            {"source": "wiki_rag.txt", "content": "RAG combines retrieval and generation..."},
-            {"source": "internal_docs_v2.pdf", "content": "...grounding the LLM in facts..."},
-        ]
-
-
-backend = MockRAGBackend()
+        if config.get("cache.use_embeddings_cache", True):
+            if rag_instance.kb.load():
+                return rag_instance
+    return rag_instance
 
 
 @app.command()
 def ingest(
-    path: Annotated[str, typer.Argument(help="Path to the directory containing documents to index.")]
+    path: Annotated[
+        str,
+        typer.Argument(
+            help="Path to directory containing PDFs to index."
+        )
+    ]
 ):
+    """Ingest PDF documents and build search indexes."""
     console.rule("[bold blue]Document Ingestion Pipeline")
-    rprint(f"[italic]Scanning directory:[/italic] {path}")
-
+    if not os.path.isdir(path):
+        console.print(
+            f"[bold red]Error:[/bold red] Directory '{path}' not found"
+        )
+        raise typer.Exit(code=1)
     try:
-        # TODO: Add actual document ingestion logic here
-        count = backend.ingest_documents(path)
-        console.print(Panel(f"[bold green]Success![/bold green] Indexed {count} documents. ", title="Ingestion Status"))
+        with console.status(
+            f"[bold green][italic]Scanning directory:[/italic][bold green][bold purple] {path}[bold purple]",
+            spinner="dots"
+        ):
+            rag = get_rag_instance()
+        with console.status(
+            f"[bold green]Processing documents in [/bold green][bold purple]{path}[bold purple]",
+            spinner="dots"
+        ):
+            chunk_count = rag.ingest_documents(path)
+        ingested_file_num = len(rag_instance.kb.ingested_file_names)
+        console.print(
+            Panel(
+                f"[bold green]Success![/bold green] "
+                f"Indexed {chunk_count} chunks from {ingested_file_num} files",
+                title="Ingestion Status"
+            )
+        )
+        rprint("[green]✓ Documents ready for querying[/green]")
     except Exception as e:
-        console.print(f"[bold red]Error during ingestion:[/bold red] {e}")
+        console.print(
+            f"[bold red]Error during ingestion:[/bold red] {e}"
+        )
+        logger.log("Ingestion failed", "EXCEPTION")
+        raise typer.Exit(code=1)
 
 
 @app.command()
 def chat():
+    """Start interactive chat session with PDF documents."""
     console.clear()
     console.rule("[bold magenta]Interactive ChatPDF Terminal[/bold magenta]")
-    rprint("[yellow]Type 'exit', 'quit', or Ctrl+C to stop the session.[/yellow]\n")
-
+    rprint("[yellow]Type 'exit', 'quit', or Ctrl+C to stop.[/yellow]\n")
+    try:
+        with console.status(
+            "[bold green]Loading: Wait for the [bold cyan]You:[/bold cyan] prompt to appear[/bold green]",
+            spinner="dots"
+        ):
+            rag = get_rag_instance()
+        if not rag.kb.is_indexed:
+            msg = ("[bold red]No documents indexed.[/bold red]\n"
+                   "Run ingest command with /path/to/pdfs first.")
+            rprint(msg)
+            raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[bold red]Error initializing RAG:[/bold red] {e}")
+        raise typer.Exit(code=1)
     while True:
         try:
-            user_query = typer.prompt(typer.style("You", fg=typer.colors.CYAN, bold=True))
+            user_query = typer.prompt(
+                typer.style("You", fg=typer.colors.CYAN, bold=True)
+            )
             user_query = user_query.strip()
-
             if user_query.lower() in ['exit', 'quit']:
                 rprint("[yellow]Ending chat session. Goodbye![/yellow]")
                 break
             if not user_query:
                 continue
-
-            with console.status("[bold green]Thinking and Retrieving Documents...[/bold green]", spinner="dots"):
-                # TODO: Add Reranking and query processing here
-                time.sleep(1)
-
-            console.print("[bold magenta]AI[/bold magenta]: ", end="\n")
-            full_response = ""
-
-
-            from rich.live import Live
-            with Live(console=console, refresh_per_second=10, transient=False) as live:
-                # TODO: Change PoC to actuall LLM token response streaming
-                for chunk in backend.stream_chat_response(user_query):
-                    full_response += chunk
-                    
-                    live.update(Markdown(full_response))
-
-            console.print()
-
-            sources = backend.get_sources(user_query)
+            stream_generator = rag.stream_response(user_query)
+            first_chunk = None
+            status_msg = "[bold green]Thinking[/bold green]"
+            with console.status(status_msg, spinner="dots"):
+                try:
+                    first_chunk = next(stream_generator)
+                except StopIteration:
+                    pass
+            console.print("[bold magenta]AI[/bold magenta]:")
+            full_response, sources = render_streaming_response(
+                stream_generator,
+                first_chunk
+            )
             if sources:
                 rprint("\n[dim]--- Sources used for this answer ---[/dim]")
-                source_table = Table(show_header=True, header_style="bold blue")
-                source_table.add_column("Filename")
-                source_table.add_column("Snippet Snippet")
+                source_table = Table(
+                    show_header=True, header_style="bold blue"
+                )
+                source_table.add_column("Source File")
                 for src in sources:
-                    # Truncate snippet for app readability
-                    snippet = (src['content'][:75] + '..') if len(src['content']) > 75 else src['content']
-                    source_table.add_row(src["source"], snippet)
+                    source_table.add_row(src)
                 console.print(source_table)
-
-            rprint("-" * 50)
-
+            rprint("-" * 50 + "\n")
         except KeyboardInterrupt:
-            rprint("\n[yellow]Session interrupted by user. Exiting.[/yellow]")
+            rprint("\n[yellow]Session interrupted by user.[/yellow]")
             break
+        except Exception as e:
+            console.print(
+                f"[bold red]Error processing query:[/bold red] {e}"
+            )
+            logger.log("Query processing failed", "ERROR")
+            continue
+
+
+@app.command()
+def clear_cache():
+    """Clear cached embeddings and indexes."""
+    console.rule("[bold yellow]Cache Management[/bold yellow]")
+    try:
+        with console.status(
+            "[bold yellow]Clearing cache, please wait[/bold yellow]",
+            spinner="dots"
+        ):
+            rag = get_rag_instance()
+        is_cleared = rag.kb.serializer.clear_cache()
+        if is_cleared:
+            rprint("[bold green]✓ Cache cleared successfully[/bold green]")
+        else:
+            rprint("[bold yellow]WARNING: Cache does not exist, quitting now[/bold yellow]")
+        logger.log("Cache cleared by user", "INFO")
+    except Exception as e:
+        console.print(
+            f"[bold red]Error clearing cache:[/bold red] {e}"
+        )
+        logger.log("Cache clearing failed", "ERROR")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def cache_info():
+    """Display information about cached data."""
+    console.rule("[bold blue]Cache Information[/bold blue]")
+    try:
+        with console.status(
+            "[bold green]Loading[/bold green]",
+            spinner="dots"
+        ):
+            rag = get_rag_instance()
+        info = rag.kb.serializer.get_cache_info()
+
+        if not info.get("cached"):
+            rprint("[bold yellow]WARNING: No cache found[/bold yellow]")
+            return
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Property")
+        table.add_column("Value")
+        for key, value in info.items():
+            if key == "size_mb":
+                table.add_row("Cache Size", f"{value:.2f} MB")
+            elif key == "n_docs":
+                table.add_row("Cached Documents", str(value))
+            elif key == "timestamp":
+                table.add_row("Created", str(value))
+            elif key == "file_names":
+                formatted_files = "\n".join(value)
+                table.add_row("Cached File Names", formatted_files)
+            elif key != "cached":
+                table.add_row(key.capitalize(), str(value))
+        console.print(table)
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        logger.log("Cache info retrieval failed", "ERROR")
+        raise typer.Exit(code=1)

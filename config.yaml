@@ -1,0 +1,62 @@
+# ChatPDF CONFIGURATION FILE
+# This file contains all configurable parameters for the RAG system.
+# Edit these values to customize behavior without changing code.
+
+# MODEL CONFIGURATION
+# These models will be downloaded on first use
+# Expect diffrent drive space usage depending how "heave" models set actually are
+models:
+  semantic_retriever: "sentence-transformers/all-MiniLM-L6-v2"
+  reranker: "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+  generator: "microsoft/Phi-3.5-mini-instruct"
+
+# DOCUMENT PROCESSING SETTINGS
+retrieval:
+  chunk_size: 512
+  chunk_overlap: 64
+  batch_size: 32
+  top_k_lexical: 5
+  top_k_semantic: 5
+  rerank_top_k: 3
+
+# RERANKER SETTINGS
+reranker:
+  device: "cuda"
+
+# SEMANTIC RETRIEVER SETTINGS
+biencoder:
+  device: "cuda"
+
+# LLM USED FOR GENERATION SETTINGS
+llm:
+  system_prompt: |
+    You are a knowledgeable and precise assistant. 
+    Your goal is to answer the user's question using ONLY the provided context documents.
+
+    Guidelines:
+    1. **Reliance on Context:** Answer the query strictly based on the "Numbered document list" provided in the user message. Do not use outside knowledge or make up facts.
+    2. **Citations:** When you answer, cite the 'Source' or 'Document ID' of the information (e.g., "According to the HR Handbook...").
+    3. **Uncertainty:** If the provided documents do not contain the answer, simply state: "I cannot answer this question based on the provided documents." Do not attempt to guess.
+    4. **Tone:** Keep your answer professional, concise, and direct.
+  temperature: 0.7
+  max_tokens: 500
+  top_p: 0.9
+  attn_implementation: "eager"
+  device: "cuda"
+  quantize: 
+    enable: true
+    # choose from 4 or 8
+    how_many_bits: 4
+
+
+# CACHE SETTINGS
+cache:
+  directory: ".chatpdf_cache"
+  use_embeddings_cache: true
+  auto_invalidate: true
+
+# LOGGING SETTINGS
+logging:
+  level: "ERROR"
+  log_to_file: false
+  log_file: "chatpdf.log"

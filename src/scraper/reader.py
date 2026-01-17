@@ -1,54 +1,81 @@
-import os
 from pathlib import Path
 from pypdf import PdfReader
+from src.utils.logger import Logger
+
+logger = Logger(__name__)
 
 
-def stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize, remove_stopwords, lemmatize):
-    step_size = chunk_size - overlap_size
-
-    if step_size <= 0:
-        raise ValueError("Overlap size must be smaller than chunk size.")
-
-    reader = PdfReader(pdf_path)
-    token_buffer = []
-
-    for page in reader.pages:
-        text = page.extract_text() or ""
-
-        page_tokens = tokenize(text)
-        page_tokens = remove_stopwords(page_tokens)
-        page_tokens = lemmatize(page_tokens)
-
-        token_buffer.extend(page_tokens)
-
-        while len(token_buffer) >= chunk_size:
-            yield token_buffer[:chunk_size]
-            token_buffer = token_buffer[step_size:]
-
-    if token_buffer:
-        yield token_buffer
-
-
-def get_chunks(dir_path, chunk_size, overlap_size, tokenize, remove_stopwords, lemmatize):
-    pdf_files = list(Path(dir_path).glob("*.pdf"))
-
+def get_chunks(
+        dir_path,
+        chunk_size,
+        overlap_size,
+        tokenize,
+        specific_files=None
+        ):
+    dir_p = Path(dir_path)
+    if specific_files:
+        pdf_files = []
+        for f_name in specific_files:
+            f_path = dir_p / Path(f_name).name
+            if f_path.exists():
+                pdf_files.append(f_path)
+            else:
+                logger.log(f"File requested but not found: {f_path}", "warning")
+    else:
+        pdf_files = list(dir_p.glob("*.pdf"))
     if not pdf_files:
-        print(f"No PDFs found in {dir_path}")
+        logger.log(f"No PDFs found in {dir_path}", "warning")
         return
-
+    logger.log(f"Found {len(pdf_files)} PDF files in {dir_path}", "info")
     for pdf_file in pdf_files:
-        yield f"<s>{pdf_file}</s>"
+        yield f"<s>{pdf_file.name}</s>"
         try:
-            yield from stream_pdf_chunks(
+            yield from _stream_pdf_chunks(
                 str(pdf_file),
                 chunk_size,
                 overlap_size,
                 tokenize,
-                remove_stopwords,
-                lemmatize
             )
         except Exception as e:
-            print(f"Failed to read {pdf_file.name}: {e}")
-            yield f"<e>{pdf_file}</e>"
+            logger.log(f"Failed to read {pdf_file.name}: {e}", "error")
+            yield f"<e>{pdf_file.name}</e>"
             continue
-        yield f"<e>{pdf_file}</e>"
+        yield f"<e>{pdf_file.name}</e>"
+
+
+def _stream_pdf_chunks(pdf_path, chunk_size, overlap_size, tokenize):
+    step_size = chunk_size - overlap_size
+    if step_size <= 0:
+        msg = "Overlap size must be smaller than chunk size."
+        raise ValueError(msg)
+    logger.log(f"Processing PDF: {pdf_path}", "debug")
+    try:
+        reader = PdfReader(pdf_path)
+        full_text = ""
+        pages_processed = 0
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            full_text += "\n" + text
+            pages_processed += 1
+        paragraphs = full_text.split("\n")
+        text_buffer = ""
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            if text_buffer:
+                text_buffer += " " + para
+            else:
+                text_buffer = para
+            est_tokens = len(tokenize(text_buffer))
+            if est_tokens >= chunk_size:
+                yield text_buffer
+                text_buffer = ""
+        if text_buffer.strip():
+            yield text_buffer
+        logger.log(
+            f"Processed {pages_processed} pages from {pdf_path}", "debug"
+        )
+    except Exception as e:
+        logger.log(f"Error processing PDF {pdf_path}: {e}", "error")
+        raise
