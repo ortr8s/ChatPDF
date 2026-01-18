@@ -1,19 +1,3 @@
-"""
-Script to calculate Ragas scores from raw evaluation data.
-
-This script takes a dataset containing 'question', 'answer', 'contexts',
-and 'ground_truth' and runs the Ragas evaluation metrics on it.
-
-CRITICAL NOTE:
-By default, Ragas uses OpenAI's GPT-4 as the "Judge" LLM to evaluate the metrics.
-You MUST have the 'OPENAI_API_KEY' environment variable set for this to work.
-Example: export OPENAI_API_KEY="sk-..."
-
-If you wish to use a local LLM or a different provider, you must configure
-the 'llm' and 'embeddings' parameters in the evaluate() function call, similar
-to how it is done in 'evaluate_ragas.py'.
-"""
-
 import argparse
 import os
 import ast

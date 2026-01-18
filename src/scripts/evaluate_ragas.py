@@ -1,10 +1,3 @@
-"""
-Evaluation script using Qasper dataset and Ragas evaluation library.
-
-This script acts as a bridge between the Qasper academic paper dataset
-and the Ragas evaluation framework for RAG system assessment.
-"""
-
 from src.utils.logger import Logger
 from src.utils.lexical_utils import Lemmatizer
 from src.utils.config import get_config
@@ -19,7 +12,6 @@ from ragas.metrics import (
 )
 from ragas import evaluate
 from datasets import load_dataset, Dataset
-import os
 import sys
 import ast
 from typing import List, Dict, Any, Tuple

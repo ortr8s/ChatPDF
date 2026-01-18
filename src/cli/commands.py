@@ -109,6 +109,7 @@ def chat():
     except Exception as e:
         console.print(f"[bold red]Error initializing RAG:[/bold red] {e}")
         raise typer.Exit(code=1)
+    conversation_history = []
     while True:
         try:
             user_query = typer.prompt(
@@ -120,7 +121,7 @@ def chat():
                 break
             if not user_query:
                 continue
-            stream_generator = rag.stream_response(user_query)
+            stream_generator = rag.stream_response(user_query, conversation_history)
             first_chunk = None
             status_msg = "[bold green]Thinking[/bold green]"
             with console.status(status_msg, spinner="dots"):
@@ -133,6 +134,8 @@ def chat():
                 stream_generator,
                 first_chunk
             )
+            conversation_history.append({"role": "user", "content": user_query})
+            conversation_history.append({"role": "assistant", "content": full_response})
             if sources:
                 rprint("\n[dim]--- Sources used for this answer ---[/dim]")
                 source_table = Table(

@@ -63,7 +63,7 @@ class RAG:
         )
         return len(self.kb.corpus)
 
-    def stream_response(self, query: str):
+    def stream_response(self, query: str, conversation_history: list = None):
         try:
             top_docs = self.search_engine.search(query, self.kb)
             if not top_docs:
@@ -74,7 +74,8 @@ class RAG:
             messages = prepare_messages_with_few_shot(
                 system_prompt=self.config.get("llm.system_prompt"),
                 documents=top_docs,
-                query=query
+                query=query,
+                conversation_history=conversation_history
             )
 
             for token in self.generator.stream_answer(messages):
