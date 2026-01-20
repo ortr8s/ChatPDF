@@ -176,5 +176,5 @@ if __name__ == "__main__":
     # Check for API Key if using default Ragas configuration
     if not args.local and "OPENAI_API_KEY" not in os.environ:
         print("WARNING: 'OPENAI_API_KEY' not found. Will attempt to use local models configuration.")
-    
+
     calculate_scores(args.input, args.output, force_local=args.local)
