@@ -69,3 +69,49 @@ class KnowledgeBase:
             self.embeddings = torch.cat([self.embeddings, new_embeddings], dim=0)
 
         self.is_indexed = True
+
+    def get_document_chunks(self, filename: str) -> List[str]:
+        try:
+            # Normalize filename for comparison
+            filename_lower = filename.lower().strip()
+
+            # Find all chunk indices that belong to this file
+            matching_indices = []
+            for idx, mapped_filename in self.file_map.items():
+                mapped_lower = mapped_filename.lower().strip()
+                # Match exact or suffix (basename match)
+                if (mapped_lower == filename_lower
+                        or mapped_lower.endswith(filename_lower)
+                        or filename_lower.endswith(mapped_lower)):
+                    matching_indices.append(idx)
+
+            if not matching_indices:
+                logger.log(
+                    f"No chunks found for file: {filename}", "WARNING"
+                )
+                return []
+
+            # Sort indices to maintain chunk order
+            matching_indices.sort()
+
+            # Retrieve chunks in order
+            chunks = []
+            for idx in matching_indices:
+                if idx < len(self.corpus):
+                    chunks.append(self.corpus[idx])
+                else:
+                    logger.log(
+                        f"Index {idx} out of range for corpus", "WARNING"
+                    )
+
+            logger.log(
+                f"Retrieved {len(chunks)} chunks for file: {filename}",
+                "INFO"
+            )
+            return chunks
+
+        except Exception as e:
+            logger.log(
+                f"Error retrieving chunks for {filename}: {e}", "ERROR"
+            )
+            return []

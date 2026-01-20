@@ -1,4 +1,11 @@
 from typing import List, Tuple
+from src.utils.logger import Logger
+
+logger = Logger(__name__)
+
+# Maximum characters for summarization to avoid context overflow
+# Approximately 4 chars per token, with buffer for prompt
+MAX_SUMMARY_CHARS = 12000
 
 
 FEW_SHOT_EXAMPLES = [
@@ -77,3 +84,70 @@ def format_document(doc_id: int, content: str, filename: str) -> str:
         f"Source: {filename}\n"
         f"Content: {content}\n"
     )
+
+
+def prepare_summary_prompt(
+    chunks: List[str],
+    filename: str,
+    max_chars: int = MAX_SUMMARY_CHARS
+) -> str:
+    # Concatenate chunks with separators
+    combined_text = ""
+    chunks_used = 0
+    truncated = False
+
+    for chunk in chunks:
+        # Check if adding this chunk would exceed the limit
+        if len(combined_text) + len(chunk) + 2 > max_chars:
+            truncated = True
+            # Add as much of the chunk as we can fit
+            remaining = max_chars - len(combined_text) - 50
+            if remaining > 100:
+                combined_text += chunk[:remaining] + "..."
+            break
+
+        if combined_text:
+            combined_text += "\n\n"
+        combined_text += chunk
+        chunks_used += 1
+
+    if truncated:
+        logger.log(
+            f"Document '{filename}' truncated: used {chunks_used}/"
+            f"{len(chunks)} chunks ({len(combined_text)}/{max_chars} chars)",
+            "WARNING"
+        )
+
+    prompt_parts = [
+        f"Please provide a comprehensive summary of the document: "
+        f"'{filename}'",
+        "=" * 60,
+        "DOCUMENT CONTENT:",
+        "=" * 60,
+        combined_text,
+        "=" * 60,
+        "\nProvide a well-structured summary covering the key points, "
+        "findings, and conclusions."
+    ]
+
+    if truncated:
+        prompt_parts.append(
+            f"\n(Note: Partial document - showing {chunks_used} of "
+            f"{len(chunks)} sections)"
+        )
+
+    return "\n".join(prompt_parts)
+
+
+def prepare_summary_messages(
+    system_prompt: str,
+    chunks: List[str],
+    filename: str,
+    max_chars: int = MAX_SUMMARY_CHARS
+) -> List[dict]:
+    messages = [{"role": "system", "content": system_prompt}]
+
+    user_prompt = prepare_summary_prompt(chunks, filename, max_chars)
+    messages.append({"role": "user", "content": user_prompt})
+
+    return messages
