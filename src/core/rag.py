@@ -1,3 +1,6 @@
+import re
+from typing import Optional
+
 from src.core.rag_components.knowledge_base import KnowledgeBase
 from src.core.lexical_retriever import LexicalRetriever
 from src.core.rag_components.ingestion_pipeline import IngestionPipeline
@@ -8,9 +11,19 @@ from src.core.text_generator import Generator
 from src.utils.lexical_utils import Lemmatizer
 from src.utils.logger import Logger
 from src.utils.config import get_config
-from src.utils.prompt_utils import prepare_prompt, prepare_messages_with_few_shot
+from src.utils.prompt_utils import (
+    prepare_messages_with_few_shot,
+    prepare_summary_messages
+)
 
 logger = Logger(__name__)
+
+# Regex pattern to detect summarization intent
+# Matches: "summarize document.pdf", "Summarize X.pdf"
+SUMMARIZE_PATTERN = re.compile(
+    r'^summarize\s+(?:document\s+)?(.+\.pdf)$',
+    re.IGNORECASE
+)
 
 
 class RAG:
@@ -63,8 +76,75 @@ class RAG:
         )
         return len(self.kb.corpus)
 
+    def _detect_summarization_intent(self, query: str) -> Optional[str]:
+        match = SUMMARIZE_PATTERN.match(query.strip())
+        if match:
+            filename = match.group(1).strip()
+            logger.log(
+                f"Detected summarization intent for: {filename}", "INFO"
+            )
+            return filename
+        return None
+
+    def _stream_summarization(self, filename: str):
+        try:
+            # Retrieve all chunks for the document
+            chunks = self.kb.get_document_chunks(filename)
+
+            if not chunks:
+                yield f"File '{filename}' not found in the knowledge base. "
+                yield "Please ensure the document has been ingested."
+                return
+
+            logger.log(
+                f"Summarizing '{filename}' with {len(chunks)} chunks",
+                "INFO"
+            )
+
+            # Get summarization system prompt from config
+            default_prompt = (
+                "You are a document summarization assistant. "
+                "Provide a comprehensive summary of the provided document."
+            )
+            summarization_prompt = self.config.get(
+                "llm.summarization_prompt",
+                default_prompt
+            )
+
+            # Prepare messages for the LLM
+            messages = prepare_summary_messages(
+                system_prompt=summarization_prompt,
+                chunks=chunks,
+                filename=filename
+            )
+
+            # Stream the summarization response
+            for token in self.generator.stream_answer(messages):
+                yield token
+
+            # Return source information
+            yield {"__sources__": [filename]}
+ 
+        except Exception as e:
+            logger.log(f"Error during summarization: {e}", "ERROR")
+            yield f"Error generating summary: {str(e)}"
+
     def stream_response(self, query: str, conversation_history: list = None):
         try:
+            # Intent Detection: Check for summarization request
+            summarize_filename = self._detect_summarization_intent(query)
+
+            if summarize_filename:
+                # Route to summarization pipeline
+                logger.log(
+                    f"Routing to summarization for: {summarize_filename}",
+                    "DEBUG"
+                )
+                for token in self._stream_summarization(summarize_filename):
+                    yield token
+                return
+
+            # Standard QA pipeline
             top_docs = self.search_engine.search(query, self.kb)
             if not top_docs:
                 yield "No relevant documents found."
