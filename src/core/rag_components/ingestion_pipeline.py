@@ -88,6 +88,30 @@ class IngestionPipeline:
             return []
         return []
 
+    def _sanitize_text(self, text: str) -> str:
+        if not isinstance(text, str):
+            return ""
+        sanitized = []
+        for char in text:
+            code = ord(char)
+            # Skip control characters (except newline, tab, space)
+            if code < 32 and code not in (9, 10):
+                continue
+            # Skip DEL character
+            if code == 127:
+                continue
+            # Skip surrogate pairs (U+D800 to U+DFFF) - invalid in isolation
+            if 0xD800 <= code <= 0xDFFF:
+                continue
+            # Replace private use area characters with space
+            if 0xE000 <= code <= 0xF8FF:
+                sanitized.append(' ')
+                continue
+            sanitized.append(char)
+        # Normalize whitespace
+        result = " ".join("".join(sanitized).split())
+        return result.strip()
+
     def _process_chunks(
             self,
             chunks_gen,
@@ -107,8 +131,9 @@ class IngestionPipeline:
                     continue
                 if chunk.startswith("<e>"):
                     continue
-                if chunk.strip():
-                    new_chunks.append(chunk)
+                clean_chunk = self._sanitize_text(chunk)
+                if clean_chunk and len(clean_chunk) > 3:
+                    new_chunks.append(clean_chunk)
                     new_map[idx] = current_file or "unknown"
                     idx += 1
         return new_chunks, new_map
