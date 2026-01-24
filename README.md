@@ -1,6 +1,6 @@
 # ChatPDF
 
-A PoC of Retrieval-Augmented Generation (RAG) system for conversational interactions with PDF documents. This intelligent system combines hybrid retrieval (lexical + semantic), reranking, and LLM integration to deliver accurate, context-grounded answers from your document collections.
+A Retrieval-Augmented Generation (RAG) system for conversational interactions with PDF documents. This system combines hybrid retrieval (lexical + semantic), reranking, and LLM integration to deliver accurate, context-grounded answers from your document collections.
 
 ## Features
 
@@ -119,6 +119,7 @@ llm:
   temperature: 0.7          # Creativity (0=deterministic, 1=random)
   max_tokens: 500           # Max response length
   top_p: 0.9                # Nucleus sampling
+  attn_implementation: "eager"  # Attention: "eager", "sdpa", or "flash_attention_2"
   quantize:
     enable: true            # 4-bit quantization for efficiency
     how_many_bits: 4        # 4-bit or 8-bit quantization
@@ -133,6 +134,15 @@ cache:
   auto_invalidate: true            # Auto-clear stale cache
 ```
 
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `python -m src.main ingest <path>` | Ingest PDF documents from a directory |
+| `python -m src.main chat` | Start interactive chat session |
+| `python -m src.main cache-info` | Display cache statistics and file list |
+| `python -m src.main clear-cache` | Clear all cached embeddings and indexes |
+
 ## Quick Start
 
 ### 1. Ingest Documents
@@ -145,19 +155,14 @@ python -m src.main ingest ./pdfs
 
 This will:
 - 📂 Scan directory for all PDF files
-- 📄 Extract text using multiple PDF parsing libraries
+- 📄 Extract text using PDF parsing libraries
 - ✂️ Create overlapping chunks (configurable size & overlap)
 - 🔢 Generate semantic embeddings for chunks
 - 🏷️ Build BM25 lexical index with tokenization
 - 💾 Cache embeddings and indexes in `.chatpdf_cache/`
 
 Example output:
-```
-Document Ingestion Pipeline
-Processing documents in ./pdfs
-✓ Success! Indexed 1,256 chunks from 8 files
-✓ Documents ready for querying
-```
+![alt text](.gifs/ingestion-1.gif)
 
 ### 2. Interactive Chat
 
@@ -169,23 +174,39 @@ python -m src.main chat
 
 Then interact naturally:
 
-```
-You: What are the main topics covered in the documents?
-
-AI: Based on the provided documents, the main topics include:
-
-1. Document Management Systems - Overview of best practices for organizing 
-   and retrieving documents efficiently.
-   [Document: guide.pdf]
-
-2. Data Security Protocols - Key measures for protecting sensitive information
-   within PDF documents.
-   [Document: security.pdf]
-
-Sources: guide.pdf (chunks 42, 51), security.pdf (chunk 18)
-```
+![alt text](.gifs/chat.gif)
 
 Exit with `exit`, `quit`, or `Ctrl+C`.
+
+### 3. Document Summarization
+
+During a chat session, you can request a full document summary:
+
+![alt text](.gifs/summarization.gif)
+
+The summarization feature:
+- Extracts all chunks from the specified PDF
+- Uses a dedicated summarization prompt for comprehensive coverage
+- Provides structured output with key sections highlighted
+
+### 4. Cache Management
+
+View cache information:
+
+```bash
+python -m src.main cache-info
+```
+
+Output:
+![alt text](.gifs/cache-info.gif)
+
+Clear all cached data:
+
+```bash
+python -m src.main clear-cache
+```
+Output:
+![alt text](.gifs/clear-cache.gif)
 
 ## How It Works
 
@@ -292,15 +313,20 @@ ChatPDF/
 │   │   ├── __init__.py
 │   │   └── reader.py                  # PDF text extraction
 │   │
-│   └── utils/
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   ├── config.py                  # YAML config loader
+│   │   ├── logger.py                  # Logging utilities
+│   │   ├── cli_utils.py               # CLI formatting & streaming
+│   │   ├── lexical_utils.py           # NLP utilities (lemmatization)
+│   │   ├── generator_utils.py         # LLM utilities
+│   │   ├── prompt_utils.py            # Prompt templates
+│   │   └── serializer.py              # Cache serialization
+│   │
+│   └── scripts/
 │       ├── __init__.py
-│       ├── config.py                  # YAML config loader
-│       ├── logger.py                  # Logging utilities
-│       ├── cli_utils.py               # CLI formatting & streaming
-│       ├── lexical_utils.py           # NLP utilities (lemmatization)
-│       ├── generator_utils.py         # LLM utilities
-│       ├── prompt_utils.py            # Prompt templates
-│       └── serializer.py              # Cache serialization
+│       ├── evaluate_ragas.py          # RAGAS evaluation framework
+│       └── calculate_scores.py        # Score calculation utilities
 │
 └── .chatpdf_cache/                    # Auto-generated embeddings cache
 ```
@@ -322,10 +348,8 @@ The project uses carefully selected libraries for robustness and performance:
 ### PDF Processing
 | Package | Purpose |
 |---------|---------|
-| `pdfplumber` | Accurate text extraction |
-| `pypdf` | PDF parsing fallback |
-| `pdfminer.six` | Advanced text layout extraction |
-| `pdf2image` | PDF rasterization support |
+| `pypdf` | PDF parsing|
+
 
 ### System & Utilities
 | Package | Purpose |
@@ -337,6 +361,13 @@ The project uses carefully selected libraries for robustness and performance:
 | `tiktoken` | Token counting for OpenAI models |
 | `bitsandbytes` | 4-bit model quantization |
 | `accelerate` | Efficient model loading |
+
+### Evaluation
+| Package | Purpose |
+|---------|---------|
+| `ragas` | RAG evaluation framework |
+| `datasets` | HuggingFace datasets for benchmarking |
+| `langchain-community` | LLM integrations for evaluation |
 
 ## Performance Optimization
 
@@ -439,6 +470,31 @@ cache:
 - ⏱️ Faster startup but risks stale data
 
 **Recommendation**: Keep `auto_invalidate: true` (default) for data integrity.
+
+## Evaluation
+
+The project includes RAGAS (Retrieval-Augmented Generation Assessment) integration for evaluating RAG pipeline quality:
+
+### Metrics Evaluated
+
+| Metric | Description |
+|--------|-------------|
+| **Faithfulness** | Measures if the answer is grounded in the retrieved context |
+| **Answer Relevancy** | Evaluates how relevant the answer is to the question |
+| **Context Precision** | Checks if retrieved context contains relevant information |
+| **Context Recall** | Measures coverage of ground truth in retrieved context |
+
+### Running Evaluation
+
+```bash
+# Evaluate using the Qasper dataset
+python -m src.scripts.evaluate_ragas
+
+# Calculate scores from evaluated results
+python -m src.scripts.calculate_scores
+```
+
+Results are saved to `evaluated.csv` and `graded.csv` for analysis.
 
 ## Advanced Configuration
 
